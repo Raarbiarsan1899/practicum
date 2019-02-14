@@ -86,6 +86,10 @@ Table 1.
 | dc\_281                  |   11.4190635 | 0.0076098 |
 | day\_28\_oxygen2         |  \-6.5489601 | 0.0333871 |
 
+| r.squared | adj.r.squared |    sigma | statistic | p.value | df |
+| --------: | ------------: | -------: | --------: | ------: | -: |
+| 0.5795081 |      0.479391 | 10.83155 |  5.788301 |   3e-07 | 16 |
+
 Stepwise regression with 2-year and birth data.
 
 Coefficients and p value for significant variables are listed.
@@ -118,6 +122,10 @@ Table 2.
 | vabs\_com\_stand\_score      |    0.6399698 | 0.0108249 |
 | vabs\_dai\_liv\_stand\_score |  \-0.4234547 | 0.0279972 |
 
+| r.squared | adj.r.squared |    sigma | statistic | p.value | df |
+| --------: | ------------: | -------: | --------: | ------: | -: |
+| 0.7486823 |     0.5738527 | 9.799746 |  4.282353 | 4.1e-06 | 33 |
+
 Cross-validation of the two models
 
 ![](cdh_phenotypes_files/figure-gfm/cross_validation-1.png)<!-- -->
@@ -143,6 +151,11 @@ Figure 4. Using birth data.
 | dc\_28                  |    4.1115409 |
 | dc\_alive\_age          |  \-0.0489990 |
 
+    ## [1] "r square:"
+
+    ##          s0
+    ## s0 0.381596
+
 Figure 5. Using birth and 2-year data.
 
 ![](cdh_phenotypes_files/figure-gfm/lasso_2yrs-1.png)<!-- -->
@@ -162,10 +175,15 @@ Figure 5. Using birth and 2-year data.
 | da\_cog\_composite\_score  |    0.0438073 |
 | vabs\_com\_stand\_score    |    0.0529395 |
 
+    ## [1] "r square:"
+
+    ##          s0
+    ## s0 0.445856
+
 *3. Deep learning*
 
-Deep learning
-performance
+Deep learning performance, vertical lines indicate selected
+iterations.
 
 ![](cdh_phenotypes_files/figure-gfm/deep_learning_history-1.png)<!-- -->![](cdh_phenotypes_files/figure-gfm/deep_learning_history-2.png)<!-- -->
 
@@ -191,8 +209,8 @@ values
 
 | model               |       rsq |       mse |     mspe |
 | :------------------ | --------: | --------: | -------: |
-| Stepwise birth      | 0.5738527 |  93.56104 | 195.0238 |
-| Stepwise 2-year     | 0.4793910 |  55.91913 | 616.7831 |
+| Stepwise birth      | 0.5738527 |  93.56104 | 178.8134 |
+| Stepwise 2-year     | 0.4793910 |  55.91913 | 642.1287 |
 | Lasso birth         | 0.3815960 | 137.59722 | 194.3534 |
 | Lasso 2-year        | 0.4458560 | 123.29912 | 201.8027 |
 | Deeplearning birth  | 0.3831679 | 137.83556 | 229.4835 |

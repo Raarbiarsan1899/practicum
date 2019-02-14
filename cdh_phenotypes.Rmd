@@ -213,6 +213,12 @@ summary(iq_newborn_step1) %>%
 	rename(variable = term, coefficient = estimate) %>% 
 	filter(p.value < 0.1) %>% 
 	knitr::kable()
+
+summary(iq_newborn_step1) %>% 
+	broom::glance() %>%
+	knitr::kable()
+	
+	
 # par(mfrow = c(2, 2))
 # plot(iq_newborn_step1)
 
@@ -236,8 +242,16 @@ summary(iq_2yrs_step1) %>%
 	rename(variable = term, coefficient = estimate) %>% 
 	filter(p.value < 0.1) %>% 
 	knitr::kable()
+
+summary(iq_2yrs_step1) %>% 
+	broom::glance() %>%
+	knitr::kable()
+
+
 # par(mfrow = c(2, 2))
 # plot(iq_2yrs_step1)
+
+
 ```
 
 Cross-validation of the two models
@@ -322,6 +336,9 @@ lasso_birth$beta %>%
 	select(-column) %>% 
 	knitr::kable()
 
+print("r square:")
+print(rsq_lasso_birth)
+
 ```
 
 Figure 5. Using birth and 2-year data.
@@ -349,6 +366,8 @@ lasso_yhat_2yrs <- cbind(1, lasso_2yrs_pred) %*% as.matrix(coef(lasso_2yrs))
 # r squared
 rsq_lasso_2yrs = 1 - var(lasso_yhat_2yrs - lasso_2yrs_out) / var(lasso_2yrs_out)
 
+
+
 # MSE
 mse_lasso_2yrs <- sum((lasso_yhat_2yrs - lasso_2yrs_out)^2) / 79
 
@@ -365,13 +384,16 @@ lasso_2yrs$beta %>%
 	select(-column) %>% 
 	knitr::kable()
 
+print("r square:")
+print(rsq_lasso_2yrs)
+
 ```
 
 
 *3. Deep learning*
 
 
-Deep learning performance
+Deep learning performance, vertical lines indicate selected iterations.
 
 ```{r deep_learning_history, warning = FALSE, message = FALSE}
 
@@ -382,7 +404,7 @@ dl_epoch_birth %>%
 	gather(key = type_error, value = error, 2:3) %>% 
 	ggplot(aes(x = epoch, y = error, color = type_error)) +
 	geom_point() +
-	# geom_line() +
+	geom_vline(xintercept = 100) +
 	ylim(0, 400) + 
 	labs(
     x = "Models",
@@ -399,7 +421,7 @@ dl_epoch_2yrs %>%
 	gather(key = type_error, value = error, 2:3) %>%
 	ggplot(aes(x = epoch, y = error, color = type_error)) +
 	geom_point() +
-	# geom_line() +
+	geom_vline(xintercept = 200) +
 	ylim(0, 400) +
 	labs(
     x = "Models",
