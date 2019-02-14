@@ -3,12 +3,11 @@ title: "CDH phenotypes"
 author: 'Zanis Fang, UID: ZF2213'
 date: "2/6/2019"
 output:
-  html_document:
-    code_folding: hide
+  github_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 
 # get model formula from lm function
@@ -44,7 +43,7 @@ tibble(
 	geom_density() +
 	labs(x = "missing values",
 			 y = "counts of variables",
-			 title = "Figure 1. missing values for variables collected at birth",
+			 title = "Figure 1. number of missing values for each variables",
 			 fill = "collected time point")
 ```
 
@@ -61,7 +60,7 @@ tibble(
 	geom_density() +
 	labs(x = "missing values",
 			 y = "counts of variables",
-			 title = "Figure 2. missing values for variables collected at birth",
+			 title = "Figure 2. number of missing values in each variables for rows with IQ values",
 			 fill = "collected time point")
 ```
 
@@ -281,9 +280,8 @@ cv_df %>% ggplot(aes(x = model, y = mse)) + geom_boxplot() +
 
 Use cross-validation to determine penalty term lambda for the lasso regression.
 
-Using birth data.
+Figure 4. Using birth data.
 
-Figure 4.
 ```{r lasso_newborn, warning = FALSE}
 
 lasso_birth_out <- data.matrix(cdh_iq_newborn[, 39])
@@ -326,9 +324,8 @@ lasso_birth$beta %>%
 
 ```
 
-Using birth and 2-year data.
+Figure 5. Using birth and 2-year data.
 
-Figure 5.
 ```{r lasso_2yrs, warning = FALSE}
 
 lasso_2yrs_out <- data.matrix(cdh_iq_2yrs[, 58])
@@ -390,7 +387,7 @@ dl_epoch_birth %>%
 	labs(
     x = "Models",
     y = "Mean Squared Errors",
-    title = "Figure 6. Gradient decendent modeling"
+    title = "Figure 6. Gradient decendent modeling using birth variables"
   )
 
 # dl_epoch_birth[101,]
@@ -407,10 +404,8 @@ dl_epoch_2yrs %>%
 	labs(
     x = "Models",
     y = "Mean Squared Errors",
-    title = "Figure 7. Gradient decendent modeling"
+    title = "Figure 7. Gradient decendent modeling with 2-year and birh variables"
   )
-
-
 
 ```
 
@@ -427,6 +422,8 @@ stp_2yrs: stepwise regression using 2-year and birth data
 stp_newborn: stepwise regression using birth data
 
 **iq_dist: original IQ distribution centered with mean IQ.**
+
+Figure 8. Distribution of the difference between predicted and true values
 
 ```{r deep_learning, warning = FALSE, message = FALSE}
 predicted_dl_newborn <-
@@ -468,7 +465,7 @@ iq <- cdh$crf7_da_fsiq_composite[which(!is.na(cdh$crf7_da_fsiq_composite))]
 iq_dist <- tibble(
 	Y_hat = iq,
 	Y = mean(cdh$crf7_da_fsiq_composite, na.rm = TRUE),
-	model_gen = "iq_dist"
+	model_gen = "a_iq"
 )
 
 temp_a <- rbind(predicted_dl_newborn, predicted_dl_2yrs)
@@ -476,15 +473,41 @@ temp_b <- rbind(predicted_step_newborn, predicted_step_2yrs)
 temp_c <- rbind(predicted_lasso_birth, predicted_lasso_2yrs)
 dl <- rbind(temp_a, temp_b)
 dl <- rbind(dl, temp_c)
-
 dl <- rbind(dl, iq_dist)
+dl <- dl %>% mutate(id = rep(1:79, 7))
 
-dl %>% 
+library(patchwork)
+a2 <- dl %>% filter(model_gen %in% c("dl_2yrs", "a_iq")) %>% 
 	ggplot(aes(x = Y - Y_hat, color = model_gen)) +
 	geom_density() +
-	labs(
-		title = "Figure 8. Distribution of the difference between predicted and true values"
-	)
+	theme(legend.position = "bottom")
+
+a1 <- dl %>% filter(model_gen %in% c("dl_newborn", "a_iq")) %>% 
+	ggplot(aes(x = Y - Y_hat, color = model_gen)) +
+	geom_density() +
+	theme(legend.position = "bottom")
+
+a3 <- dl %>% filter(model_gen %in% c("stp_newborn", "a_iq")) %>% 
+	ggplot(aes(x = Y - Y_hat, color = model_gen)) +
+	geom_density() +
+	theme(legend.position = "bottom")
+
+a4 <- dl %>% filter(model_gen %in% c("stp_2yrs", "a_iq")) %>% 
+	ggplot(aes(x = Y - Y_hat, color = model_gen)) +
+	geom_density() +
+	theme(legend.position = "bottom")
+
+a5 <- dl %>% filter(model_gen %in% c("lasso_birth", "a_iq")) %>% 
+	ggplot(aes(x = Y - Y_hat, color = model_gen)) +
+	geom_density() +
+	theme(legend.position = "bottom")
+
+a6 <- dl %>% filter(model_gen %in% c("lasso_2yrs", "a_iq")) %>% 
+	ggplot(aes(x = Y - Y_hat, color = model_gen)) +
+	geom_density() +
+	theme(legend.position = "bottom")
+
+(a1 + a2 + a3) / (a4 + a5 + a6)
 
 dl %>% 
 	ggplot(aes(x = Y, y = Y_hat, color = model_gen)) +
@@ -555,7 +578,7 @@ tibble(
 
 ### Conclusion
 
-According to Figure 9, all the models at least out-performed null model (predict the IQ values with mean IQ). But all the models has higher out-sample error (MSPE) in comparison with training error (MSE). It is not confident whether the models would have some prediction values.
+According to Figure 8, all the models slightly out-performed null model (predict the IQ values with mean IQ). But all the models has higher out-sample error (MSPE) in comparison with training error (MSE). It is not confident whether the models would have some prediction values.
 
 I tried to reduce MSPE with regularizers like L2-norm for node weights and dropout methods in deeplearning and Lasso regression for linear models but helped little to reduce MSPE.
 
