@@ -1,0 +1,574 @@
+---
+title: "CDH phenotypes"
+author: 'Zanis Fang, UID: ZF2213'
+date: "2/6/2019"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+# get model formula from lm function
+get_lm_model = function(lm_result) {
+  return(paste(as.character((lm_result$terms)[[2]]), "~",
+        as.character((lm_result$terms)[[3]])[2], "+",
+        as.character((lm_result$terms)[[3]])[3]))
+}
+
+```
+
+### Method
+
+**1. Dealing with missing values.**
+
+```{r load_data}
+
+# load data and impute several variables
+cdh <- readxl::read_xlsx("./CDH_phenotypes.xlsx", sheet = 1, na = ".")
+
+```
+
+There are many missing values in this table. Completeness is different for values collected at different time points.
+
+```{r completeness_of_newborn_variables, message = FALSE}
+# take a look at intergrity of variables
+tibble(
+	variables = colnames(cdh),
+	missing_values = apply(cdh, 2, FUN = function(x) sum(is.na(x))),
+	collect_time =
+		c(rep("at_birth", 44), rep("at_2yrs", 19), rep("at_5yrs", 16))) %>%
+	ggplot(aes(x = missing_values, fill = collect_time)) +
+	geom_density() +
+	labs(x = "missing values",
+			 y = "counts of variables",
+			 title = "Figure 1. missing values for variables collected at birth",
+			 fill = "collected time point")
+```
+
+All variables are relatively complete for the rows with IQ values collected, indicating a good follow-up in this subgroup.
+
+```{r completeness}
+tibble(
+	variables = colnames(cdh),
+	missing_values = apply(cdh %>% filter(!is.na(crf7_da_fsiq_composite)),
+												 2, FUN = function(x) sum(is.na(x))),
+	collect_time = c(rep("at_birth", 44), rep("at_2yrs", 19), rep("at_5yrs", 16))
+) %>%
+	ggplot(aes(x = missing_values, fill = collect_time)) +
+	geom_density() +
+	labs(x = "missing values",
+			 y = "counts of variables",
+			 title = "Figure 2. missing values for variables collected at birth",
+			 fill = "collected time point")
+```
+
+I noticed a small peak for variables collected at birth with high percentage of missing values. It turned out to be "gu_anomaly", "clp", "need_neo_card_surg", "sk_anomalies", "bps", "ccam".
+
+Since all of these variables associate with rare situations. It might be reasonable to impute the missing values with 0 (or 2 for need_neo_card_surg).
+
+```{r echo = FALSE}
+# imputation
+cdh <- cdh %>% 
+	replace_na(list(need_neo_card_surg = 2, gu_anomaly = 0, clp = 0,
+									sk_anomalies = 0, bps = 0, ccam = 0))
+```
+
+In this subgroup, the remaining missing values were less severe, so I imputed these small amount of missing values with the median of corresponding columns. I'll do it in the following chunks.
+
+Variables "dead", "osp_tracheostomy", "discharge", "repaired", "SampleID", "dc_dead_age" won't be used because they are either single-valued or contribute little to model building.
+
+**2. Prediction methods**
+
+I'll first try to predict IQ using variables collected at birth because of the highest completeness. Then I will use variables collected at either 2-year or at birth to see if it can improve prediction.
+
+The methods I will use are the followin:
+
++ Backward stepwise linear regression (R step function)
++ Lasso regression (R glmnet package)
++ Sequential neural network (python keras package (in seperate document))
+
+**3. Data cleaning**
+
+First, generating table with only variables collected at birth.
+
+When imputing individually with median, the following variables should be mentioned since they have higher percentage of missing values (more than 20%):
+
+"hh", "ph1", "ph3", "day_28_oxygen", "hear_2yr"
+
+
+```{r predict_with_newborn_data}
+
+# data cleaning
+cdh_iq_newborn <- cdh %>%
+	# get only rows with iq values
+	filter(!is.na(crf7_da_fsiq_composite)) %>%
+	# select newborn variables
+	select(1:44, crf7_da_fsiq_composite) %>% 
+	# remove less important variables
+	select(-dead, -osp_tracheostomy, -discharge,
+				 -repaired, -SampleID, -dc_dead_age)
+
+# impute missing values with median of the column
+for (i in 1:ncol(cdh_iq_newborn)) {
+	cdh_iq_newborn[which(is.na(cdh_iq_newborn[, i])), i] <- median(cdh_iq_newborn[[i]], na.rm = TRUE)
+	# turn numeric variables into factor variables
+	if (length(unique(cdh_iq_newborn[[i]])) <= 3) {
+		cdh_iq_newborn[[i]] <- as.factor(cdh_iq_newborn[[i]])
+	}
+}
+
+# take a look at cleaned data
+# cdh_iq_newborn %>% skimr::skim()
+
+# output for neural network in python
+# write_csv(cdh_iq_newborn, "./cdh_iq_newborn.csv")
+
+```
+
+
+```{r using_two_year_variable}
+# data cleaning
+cdh_iq_2yrs <- cdh %>%
+	filter(!is.na(crf7_da_fsiq_composite)) %>% 
+	select(1:63, crf7_da_fsiq_composite) %>%
+	# single value
+	select(-dead, -osp_tracheostomy, -discharge,
+				 -repaired, -SampleID, -dc_dead_age)
+
+# df_status_tube, fedu, gender, hosp_2yr, medu, income,
+# nitric_oxide_therapy, patch, ph1, prenatal_diagnosis,
+# ther2yr_any, transfer_inborn
+
+# impute missing values with median of the column
+for (i in 1:ncol(cdh_iq_2yrs)) {
+	cdh_iq_2yrs[which(is.na(cdh_iq_2yrs[, i])), i] <- median(cdh_iq_2yrs[[i]], na.rm = TRUE)
+	# transform to factor
+	if (length(unique(cdh_iq_2yrs[[i]])) <= 3) {
+		cdh_iq_2yrs[[i]] <- as.factor(cdh_iq_2yrs[[i]])
+	}
+}
+
+# take a look at cleaned data
+# cdh_iq_2yrs %>% skimr::skim()
+
+# output for neural network in python
+# write_csv(cdh_iq_2yrs, "./cdh_iq_2yrs.csv")
+```
+
+```{r using_five_year_variable, eval = FALSE, echo = FALSE}
+# data cleaning
+cdh_iq_5yrs <- cdh %>%
+	filter(!is.na(crf7_da_fsiq_composite)) %>% 
+	# select only columns are at least 80% complete in original datasets
+	# because only those columns are useful in predicting missing IQ values
+	select(which(apply(cdh_iq_temp, 2,
+										 function(x) sum(!is.na(x))) > nrow(cdh_iq_temp) * 0.8)) %>% 
+	select(crf7_da_fsiq_composite, everything()) %>%
+	# single value
+	select(-dead, -osp_tracheostomy, -discharge, -repaired, -SampleID)
+
+cdh_iq_5yrs %>% skimr::skim()
+# df_status_tube, fedu, gender, hosp_2yr, medu, income,
+# nitric_oxide_therapy, patch, ph1, prenatal_diagnosis,
+# ther2yr_any, transfer_inborn
+
+for (i in 1:ncol(cdh_iq_5yrs)) {
+	cdh_iq_5yrs[which(is.na(cdh_iq_5yrs[, i])), i] <- median(cdh_iq_5yrs[[i]], na.rm = TRUE)
+	if (length(unique(cdh_iq_5yrs[[i]])) <= 3) {
+		cdh_iq_5yrs[[i]] <- as.factor(cdh_iq_5yrs[[i]])
+	}
+}
+
+# write_csv(cdh_iq_5yrs, "./cdh_iq_5yrs.csv")
+
+```
+
+**4. Goals**
+
+I aim at modeling with low training errors (Mean Squared Error, MSE) while keep cross-validation errors low (Mean Squared Prediction Error, MSPE). I will also show the difference between predicted values and collected values. R-squared is calculated to show the percentage of variance in IQ explained by the model.
+
+### Results
+
+*1. Stepwise regression*
+
+Stepwise regression with birth data.
+
+Coefficients and p value for significant variables are listed.
+
+Table 1.
+```{r newborn_regression}
+# full model
+iq_lm_newborn <- lm(data = cdh_iq_newborn, formula = crf7_da_fsiq_composite ~ .)
+
+# summary(iq_lm_newborn)
+
+iq_newborn_step1 <- step(iq_lm_newborn, direction = "backward", trace = FALSE)
+iq_newborn_step1 <- eval(iq_newborn_step1$call)
+
+summary(iq_newborn_step1) %>%
+	broom::tidy() %>%
+	select(-std.error, -statistic) %>%
+	rename(variable = term, coefficient = estimate) %>% 
+	filter(p.value < 0.1) %>% 
+	knitr::kable()
+# par(mfrow = c(2, 2))
+# plot(iq_newborn_step1)
+
+```
+
+Stepwise regression with 2-year and birth data.
+
+Coefficients and p value for significant variables are listed.
+
+Table 2.
+```{r 2_year_regression}
+# full model
+iq_lm_2yrs <- lm(data = cdh_iq_2yrs, formula = crf7_da_fsiq_composite ~ .)
+
+iq_2yrs_step1 <- step(iq_lm_2yrs, direction = "backward", trace = FALSE)
+iq_2yrs_step1 <- eval(iq_2yrs_step1$call)
+
+summary(iq_2yrs_step1) %>% 
+	broom::tidy() %>%
+	select(-std.error, -statistic) %>%
+	rename(variable = term, coefficient = estimate) %>% 
+	filter(p.value < 0.1) %>% 
+	knitr::kable()
+# par(mfrow = c(2, 2))
+# plot(iq_2yrs_step1)
+```
+
+Cross-validation of the two models
+
+```{r cross_validation, warning = FALSE}
+formula1 <- get_lm_model(iq_newborn_step1)
+formula2 <- get_lm_model(iq_2yrs_step1)
+
+cv_df = 
+  modelr::crossv_mc(cdh, 100) %>% 
+  mutate(train = map(train, as_tibble), test = map(test, as_tibble)) %>%
+  mutate(newborn = map(train, ~lm(formula = as.formula(formula1), data = .x)),
+         twoyrs = map(train, ~lm(formula = as.formula(formula2), data = .x))
+  			 )
+
+cv_df <- cv_df %>% 
+  mutate(mse_newborn =
+           map2_dbl(newborn, test, ~(modelr::rmse(model = .x, data = .y))^2),
+         mse_twoyrs =
+           map2_dbl(twoyrs, test, ~(modelr::rmse(model = .x, data = .y))^2)
+         ) %>%
+  select(starts_with("mse")) %>%
+  gather(key = model, value = mse) %>%
+  mutate(model = recode(model, mse_step1 = "Newborn",
+                        mse_step2 = "Two Years"
+  											))
+
+cv_df %>% ggplot(aes(x = model, y = mse)) + geom_boxplot() +
+  labs(
+    x = "Models",
+    y = "Mean Squared Prediction Errors",
+    title = "Figure 3. Cross-validation of stepwise models"
+  ) +
+  theme_bw() +
+	ylim(0, 1000)
+
+```
+
+*2. Lasso regression*
+
+Use cross-validation to determine penalty term lambda for the lasso regression.
+
+Using birth data.
+
+Figure 4.
+```{r lasso_newborn, warning = FALSE}
+
+lasso_birth_out <- data.matrix(cdh_iq_newborn[, 39])
+lasso_birth_pred <- data.matrix(cdh_iq_newborn[, 1:38])
+
+# crossvalidation
+set.seed(37)
+cv_lasso_birth <- glmnet::cv.glmnet(lasso_birth_pred,
+																		lasso_birth_out, alpha = 1)
+
+# plot crossvalidation
+par(mfrow = c(1, 1))
+plot(cv_lasso_birth)
+
+# get model with least MPSE
+lasso_birth <- glmnet::glmnet(lasso_birth_pred, lasso_birth_out,
+															alpha = 1, lambda = cv_lasso_birth$lambda.min)
+
+# y_hat
+lasso_yhat_birth <- cbind(1, lasso_birth_pred) %*% as.matrix(coef(lasso_birth))
+
+# r squared
+rsq_lasso_birth = 1 - var(lasso_yhat_birth - lasso_birth_out) /
+	var(lasso_birth_out)
+
+# MSE
+mse_lasso_birth <- sum((lasso_yhat_birth - lasso_birth_out)^2) / 79
+
+# MPSE
+mspe_high_lasso_birth <- cv_lasso_birth$cvup[which(cv_lasso_birth$lambda == cv_lasso_birth$lambda.min)]
+mpse_low_lasso_birth <- cv_lasso_birth$cvlo[which(cv_lasso_birth$lambda == cv_lasso_birth$lambda.min)]
+mpse_lasso_birth <- cv_lasso_birth$cvm[which(cv_lasso_birth$lambda == cv_lasso_birth$lambda.min)]
+
+# coefficients
+lasso_birth$beta %>%
+	broom::tidy() %>%
+	rename(variable = row, coefficients = value) %>% 
+	select(-column) %>% 
+	knitr::kable()
+
+```
+
+Using birth and 2-year data.
+
+Figure 5.
+```{r lasso_2yrs, warning = FALSE}
+
+lasso_2yrs_out <- data.matrix(cdh_iq_2yrs[, 58])
+lasso_2yrs_pred <- data.matrix(cdh_iq_2yrs[, 1:57])
+
+# crossvalidation
+set.seed(37)
+cv_lasso_2yrs <- glmnet::cv.glmnet(lasso_2yrs_pred, lasso_2yrs_out, alpha = 1)
+
+# plot crossvalidation
+par(mfrow = c(1, 1))
+plot(cv_lasso_2yrs)
+
+# get model with least MPSE
+lasso_2yrs <- glmnet::glmnet(lasso_2yrs_pred, lasso_2yrs_out, 
+                                   alpha = 1, lambda = cv_lasso_2yrs$lambda.min)
+
+# y_hat
+lasso_yhat_2yrs <- cbind(1, lasso_2yrs_pred) %*% as.matrix(coef(lasso_2yrs))
+
+# r squared
+rsq_lasso_2yrs = 1 - var(lasso_yhat_2yrs - lasso_2yrs_out) / var(lasso_2yrs_out)
+
+# MSE
+mse_lasso_2yrs <- sum((lasso_yhat_2yrs - lasso_2yrs_out)^2) / 79
+
+
+# MPSE
+mspe_high_lasso_2yrs <- cv_lasso_2yrs$cvup[which(cv_lasso_2yrs$lambda == cv_lasso_2yrs$lambda.min)]
+mpse_low_lasso_2yrs <- cv_lasso_2yrs$cvlo[which(cv_lasso_2yrs$lambda == cv_lasso_2yrs$lambda.min)]
+mpse_lasso_2yrs <- cv_lasso_2yrs$cvm[which(cv_lasso_2yrs$lambda == cv_lasso_2yrs$lambda.min)]
+
+# coefficients
+lasso_2yrs$beta %>%
+	broom::tidy() %>%
+	rename(variable = row, coefficients = value) %>% 
+	select(-column) %>% 
+	knitr::kable()
+
+```
+
+
+*3. Deep learning*
+
+
+Deep learning performance
+
+```{r deep_learning_history, warning = FALSE, message = FALSE}
+
+dl_epoch_birth <- read_csv("./history_newborn.csv") %>%
+	rename(epoch = X1, MSPE = val_loss, MSE = loss)
+
+dl_epoch_birth %>% 
+	gather(key = type_error, value = error, 2:3) %>% 
+	ggplot(aes(x = epoch, y = error, color = type_error)) +
+	geom_point() +
+	# geom_line() +
+	ylim(0, 400) + 
+	labs(
+    x = "Models",
+    y = "Mean Squared Errors",
+    title = "Figure 6. Gradient decendent modeling"
+  )
+
+# dl_epoch_birth[101,]
+
+dl_epoch_2yrs <- read_csv("./history_2yrs.csv") %>%
+	rename(epoch = X1, MSPE = val_loss, MSE = loss)
+
+dl_epoch_2yrs %>% 
+	gather(key = type_error, value = error, 2:3) %>%
+	ggplot(aes(x = epoch, y = error, color = type_error)) +
+	geom_point() +
+	# geom_line() +
+	ylim(0, 400) +
+	labs(
+    x = "Models",
+    y = "Mean Squared Errors",
+    title = "Figure 7. Gradient decendent modeling"
+  )
+
+
+
+```
+
+
+### Summary
+
+**1. Distribution of the difference between predicted values (Y_hat) and true values (Y) for different models**
+
+dl_2yrs: deeplearning using 2-year and birth data
+dl_newborn: deeplearning using birth data
+lasso_2yrs: lasso regression using 2-year and birth data
+lasso_newborn: lasso regression using birth data
+stp_2yrs: stepwise regression using 2-year and birth data
+stp_newborn: stepwise regression using birth data
+
+**iq_dist: original IQ distribution centered with mean IQ.**
+
+```{r deep_learning, warning = FALSE, message = FALSE}
+predicted_dl_newborn <-
+	read_csv("./predicted_newborn.csv") %>%
+	select(Y_hat, Y) %>%
+	mutate(model_gen = "dl_newborn")
+
+predicted_dl_2yrs <-
+	read_csv("./predicted_2yrs.csv") %>%
+	select(Y_hat, Y) %>%
+	mutate(model_gen = "dl_2yrs")
+
+predicted_step_newborn <- tibble(
+	Y_hat = iq_newborn_step1$fitted.values,
+	Y = iq_newborn_step1$model[, 1],
+	model_gen = "stp_newborn"
+)
+
+predicted_step_2yrs <- tibble(
+	Y_hat = iq_2yrs_step1$fitted.values,
+	Y = iq_2yrs_step1$model[, 1],
+	model_gen = "stp_2yrs"
+)
+
+predicted_lasso_2yrs <- tibble(
+	Y_hat = lasso_yhat_2yrs,
+	Y = lasso_2yrs_out,
+	model_gen = "lasso_2yrs"
+)
+
+predicted_lasso_birth <- tibble(
+	Y_hat = lasso_yhat_birth,
+	Y = lasso_birth_out,
+	model_gen = "lasso_birth"
+)
+
+iq <- cdh$crf7_da_fsiq_composite[which(!is.na(cdh$crf7_da_fsiq_composite))]
+
+iq_dist <- tibble(
+	Y_hat = iq,
+	Y = mean(cdh$crf7_da_fsiq_composite, na.rm = TRUE),
+	model_gen = "iq_dist"
+)
+
+temp_a <- rbind(predicted_dl_newborn, predicted_dl_2yrs)
+temp_b <- rbind(predicted_step_newborn, predicted_step_2yrs)
+temp_c <- rbind(predicted_lasso_birth, predicted_lasso_2yrs)
+dl <- rbind(temp_a, temp_b)
+dl <- rbind(dl, temp_c)
+
+dl <- rbind(dl, iq_dist)
+
+dl %>% 
+	ggplot(aes(x = Y - Y_hat, color = model_gen)) +
+	geom_density() +
+	labs(
+		title = "Figure 8. Distribution of the difference between predicted and true values"
+	)
+
+dl %>% 
+	ggplot(aes(x = Y, y = Y_hat, color = model_gen)) +
+	geom_point() +
+	geom_smooth(method = "lm") +
+	facet_grid(. ~ model_gen) + 
+	labs(
+		title = "Figure 9. Scatter plot of the Y and Y_hat"
+		
+	)
+```
+
+**2. MSE (training bias) MPSE (out-sample bias) and R-squared**
+
+```{r test_statistics}
+
+# R squared
+
+rsq <- c(
+	summary(iq_2yrs_step1)$adj.r.squared,
+	summary(iq_newborn_step1)$adj.r.squared,
+	rsq_lasso_birth[1],
+	rsq_lasso_2yrs[1],
+	1 - var(predicted_dl_newborn$Y_hat - predicted_dl_newborn$Y) /
+		var(predicted_dl_newborn$Y),
+	1 - var(predicted_dl_2yrs$Y_hat - predicted_dl_2yrs$Y) /
+		var(predicted_dl_2yrs$Y)
+)
+
+# MSE
+
+mse <- c(
+	sum(iq_newborn_step1$residuals^2) / 79,
+	sum(iq_2yrs_step1$residuals^2) / 79,
+	mse_lasso_birth,
+	mse_lasso_2yrs,
+	sum((predicted_dl_newborn$Y_hat - predicted_dl_newborn$Y)^2) / 79,
+	sum((predicted_dl_2yrs$Y_hat - predicted_dl_2yrs$Y)^2) / 79
+)
+
+# MSPE
+
+summarise_step <- cv_df %>% group_by(model) %>% summarise(median = median(mse), min = min(mse), max = max(mse))
+
+mspe <- c(
+	summarise_step[1, 2][[1]],
+	summarise_step[2, 2][[1]],
+	mpse_lasso_birth[[1]],
+	mpse_lasso_2yrs[[1]],
+	dl_epoch_birth[101, 2][[1]],
+	dl_epoch_2yrs[201, 2][[1]]
+)
+
+tibble(
+	model = c("Stepwise birth", 
+						"Stepwise 2-year",
+						"Lasso birth",
+						"Lasso 2-year",
+						"Deeplearning birth",
+						"Deeplearning 2-year"),
+	rsq = rsq,
+	mse = mse,
+	mspe = mspe
+	
+) %>% knitr::kable()
+
+```
+
+### Conclusion
+
+According to Figure 9, all the models at least out-performed null model (predict the IQ values with mean IQ). But all the models has higher out-sample error (MSPE) in comparison with training error (MSE). It is not confident whether the models would have some prediction values.
+
+I tried to reduce MSPE with regularizers like L2-norm for node weights and dropout methods in deeplearning and Lasso regression for linear models but helped little to reduce MSPE.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
