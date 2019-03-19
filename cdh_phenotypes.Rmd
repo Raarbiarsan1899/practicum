@@ -71,7 +71,7 @@ Since all of these variables associate with rare situations. It might be reasona
 ```{r echo = FALSE}
 # imputation
 cdh <- cdh %>% 
-	replace_na(list(need_neo_card_surg = 2, gu_anomaly = 0, clp = 0,
+	replace_na(list(gu_anomaly = 0, clp = 0,
 									sk_anomalies = 0, bps = 0, ccam = 0))
 ```
 
@@ -157,33 +157,8 @@ for (i in 1:ncol(cdh_iq_2yrs)) {
 # write_csv(cdh_iq_2yrs, "./cdh_iq_2yrs.csv")
 ```
 
-```{r using_five_year_variable, eval = FALSE, echo = FALSE}
-# data cleaning
-cdh_iq_5yrs <- cdh %>%
-	filter(!is.na(crf7_da_fsiq_composite)) %>% 
-	# select only columns are at least 80% complete in original datasets
-	# because only those columns are useful in predicting missing IQ values
-	select(which(apply(cdh_iq_temp, 2,
-										 function(x) sum(!is.na(x))) > nrow(cdh_iq_temp) * 0.8)) %>% 
-	select(crf7_da_fsiq_composite, everything()) %>%
-	# single value
-	select(-dead, -osp_tracheostomy, -discharge, -repaired, -SampleID)
 
-cdh_iq_5yrs %>% skimr::skim()
-# df_status_tube, fedu, gender, hosp_2yr, medu, income,
-# nitric_oxide_therapy, patch, ph1, prenatal_diagnosis,
-# ther2yr_any, transfer_inborn
 
-for (i in 1:ncol(cdh_iq_5yrs)) {
-	cdh_iq_5yrs[which(is.na(cdh_iq_5yrs[, i])), i] <- median(cdh_iq_5yrs[[i]], na.rm = TRUE)
-	if (length(unique(cdh_iq_5yrs[[i]])) <= 3) {
-		cdh_iq_5yrs[[i]] <- as.factor(cdh_iq_5yrs[[i]])
-	}
-}
-
-# write_csv(cdh_iq_5yrs, "./cdh_iq_5yrs.csv")
-
-```
 
 **4. Goals**
 

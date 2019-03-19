@@ -1,0 +1,302 @@
+---
+title: "Bayesian Methods for CDH dataset"
+author: 'Zanis Fang, UID: ZF2213'
+date: "3/17/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+```
+
+
+### Data cleaning
+
+**Cases selection**
+Death cases were removed because it would not reasonable to impute their follow-up data. After removal of death cases, "dead", "discharge", "SampleID", "dc_dead_age", "dc_alive_age" were also removed.
+
+**Structural Imputation**
+NA's in "gu_anomaly", "clp", "sk_anomalies", "bps", "ccam" can be imputed with 0 as long as "sys" is not NA. Since they added up to the number in "sys".
+
+Making categorical variables factors for downstream anaylsis. "sys", "apgar_1", "apgar_5" remains continuous since they are ordinal.
+
+```{r load_data}
+
+# load data and impute several variables
+cdh <- readxl::read_xlsx("./CDH_phenotypes.xlsx", sheet = 1, na = ".")
+
+cdh[which(!is.na(cdh$sys)),] <- cdh %>% filter(!is.na(sys)) %>%
+	# imputation, add up to "sys" column
+	replace_na(list(gu_anomaly = 0, clp = 0,
+									sk_anomalies = 0, bps = 0, ccam = 0))
+
+# make categorical variables factors
+for (i in 1:ncol(cdh)) {
+	# turn numeric variables into factor variables
+	if (length(unique(cdh[[i]])) <= 4) {
+		cdh[[i]] <- as.factor(cdh[[i]])
+	}
+}
+
+# make categorical variables ordered factors
+
+# cdh <- cdh %>%
+# 	mutate(apgar_1 = factor(apgar_1, ordered = TRUE),
+# 				 apgar_5 = factor(apgar_5, ordered = TRUE),
+# 				 sys = factor(sys, ordered = TRUE))
+
+# cdh %>% skimr::skim()
+
+# filter those alive
+cdh_alive <- cdh %>% filter(dead == 0)
+
+# data cleaning
+cdh_iq_pca <- cdh_alive %>%
+	# single value
+	# select(-SampleID)
+	# select(-SampleID, -dc_alive_age, -dc_dead_age)
+	select(-dead, -discharge, -SampleID, -dc_dead_age, -dc_alive_age)
+```
+
+**Missing value imputation using EM algorithm**
+
+Use expectation-maximization (EM) algorithm to impute missing values. Setting 3 underlying latent components.
+
+```{r}
+# estimate number of latent variables, run too long
+# missMDA::estim_ncpFAMD(cdh_iq_pca, ncp.max = 4)
+cdh_imputed_famd <- missMDA::imputeFAMD(cdh_iq_pca, method = "EM", ncp = 3)
+
+# extract imputated dataframe
+cdh_normalized <- cdh_imputed_famd$completeObs
+
+```
+
+**Scaling and centering the continuous variables**
+
+Using square-root unit variance as scaling parameters.
+Centering around zero.
+
+```{r normalization}
+
+# normalization
+
+for (i in 1:ncol(cdh_normalized)) {
+	if (!is.factor(cdh_normalized[[i]])) {
+		cdh_normalized[[i]] <- as.numeric(pcaMethods::prep(cdh_normalized[[i]], scale = "pareto", center = TRUE))
+	}
+}
+
+# cdh_normalized %>% skimr::skim()
+
+# par(mfrow = c(1,2 ))
+```
+
+### Factor Analysis
+
+FAMD (Factor Analysis for Mixed Data) is a principal component method dedicated to explore data with both continuous and categorical variables. It can be seen roughly as a mixed between PCA and MCA (multiple correspondence analysis).
+
+Since the dataset contains a lot of categorical variables, it would be better to use factor analysis.
+
+
+```{r factor_analysis}
+
+# factor analysis
+cdh_famd <- FactoMineR::FAMD(cdh_normalized, ncp = 5, graph = FALSE)
+
+cdh_famd$eig %>% knitr::kable()
+# cdh_famd$ind$contrib %>% View
+# cdh_famd$var$coord %>% View
+
+cdh_famd_coord <- cdh_famd$ind$coord
+```
+
+Variables contribute most to the three dimensions are plotted and listed.
+
+```{r top_variables}
+cdh_famd$var$coord %>% as_tibble() %>% 
+	arrange(desc(Dim.1)) %>% 
+	mutate(num_row = row_number()) %>% 
+	ggplot(aes(x = num_row, y = Dim.1)) +
+	geom_point() +
+	# reference line
+	geom_vline(xintercept = 14.5) +
+	labs(title = "Variable Loadings on 1st Dimension",
+			 x = "Rank",
+			 y = "Loadings on 1st Dimension") +
+	theme_bw()
+
+cdh_famd$var$coord %>% as_tibble() %>% 
+	mutate(variable = rownames(cdh_famd$var$coord)) %>% 
+	select(variable, Dim.1) %>% 
+	top_n(14) %>% knitr::kable()
+
+cdh_famd$var$coord %>% as_tibble() %>% 
+	arrange(desc(Dim.2)) %>% 
+	mutate(num_row = row_number()) %>% 
+	ggplot(aes(x = num_row, y = Dim.2)) +
+	geom_point() +
+  # reference line
+	geom_vline(xintercept = 13.5) +
+	labs(title = "Variable Loadings on 2nd Dimension",
+			 x = "Rank",
+			 y = "Loadings on 2nd Dimension") +
+	theme_bw()
+
+cdh_famd$var$coord %>% as_tibble() %>% 
+	mutate(variable = rownames(cdh_famd$var$coord)) %>% 
+	select(variable, Dim.2) %>% 
+	top_n(13) %>% knitr::kable()
+
+cdh_famd$var$coord %>% as_tibble() %>% 
+	arrange(desc(Dim.3)) %>% 
+	mutate(num_row = row_number()) %>% 
+	ggplot(aes(x = num_row, y = Dim.3)) +
+	geom_point() +
+  # reference line
+	geom_vline(xintercept = 11.5) +
+	labs(title = "Variable Loadings on 3rd Dimension",
+			 x = "Rank",
+			 y = "Loadings on 3rd Dimension") +
+	theme_bw()
+
+cdh_famd$var$coord %>% as_tibble() %>% 
+	mutate(variable = rownames(cdh_famd$var$coord)) %>% 
+	select(variable, Dim.3) %>% 
+	top_n(11) %>% knitr::kable()
+
+
+```
+
+
+# Probabilistic graphical models
+
+Gausian Mixture Models for K-means clustering. Three-centroid K-means using individual loadings on the three dimensions from FAMD analysis.
+
+```{r}
+library(FPDclustering)
+library(plotly)
+fpdclust <- FPDC(cdh_famd_coord[, 1:4], k = 3, nf = 3, nu = 2)
+#3,2,2(3)best nf cannot be larger than number of column, nf cannot be 1
+Silh(fpdclust$probability)
+
+kmeans_cdh <- tibble(
+	cluster1 = fpdclust$probability[, 1],
+	cluster2 = fpdclust$probability[, 2],
+  cluster3 = fpdclust$probability[, 3],
+	pc1 = cdh_famd_coord[,1],
+	pc2 = cdh_famd_coord[,2],
+	pc3 = cdh_famd_coord[,3],
+	label = as.factor(fpdclust$label)
+	) %>%
+	# mutate(test = if_else(label == 1, cluster1, cluster2)) %>% 
+	mutate(test = if_else(label == 1, cluster1,
+												if_else(label == 2, cluster2, cluster3)))
+
+
+# 2d plot
+# kmeans_cdh %>%  ggplot(aes(x = pc1, y = pc2, color = label)) +
+# 	geom_point(aes(alpha = test)) +
+# 	xlim(c(-10, 10)) + 
+# 	ylim(c(-10, 10))
+
+
+# colors = c('#BF382A', '#0C4B8E')
+plot_ly(kmeans_cdh,
+				x = ~pc1, y = ~pc2, z = ~pc3, color = ~label, size = 1,
+				marker = list(symbol = 'circle', sizemode = 'diameter'), sizes = 2) %>%
+	add_markers() %>% 
+  layout(scene = list(xaxis = list(title = 'NDD related',
+  																 range = c(-20, 10)),
+                     yaxis = list(title = 'Figures',
+                     						 range = c(-10, 10)),
+                     zaxis = list(title = 'CDH therapy',
+                     						 range = c(-10, 5))))
+
+
+
+```
+
+
+
+
+```{r bayesian_pca, eval = FALSE, echo = FALSE}
+library(pcaMethods)
+set.seed(19)
+# does not work for factor variables
+resBPCA_cdh <- pcaMethods::pca(object = cdh_iq_pca,
+															 scale = "pareto",
+															 method = "bpca", center = TRUE, nPcs = 4)
+
+b <- completeObs(resBPCA_cdh)
+
+
+slplot(resBPCA_cdh, pcs = c(3,2))
+Q2(resBPCA_cdh, fold = 5)
+
+kEstimate(cdh_iq_pca, method = "bpca")
+loadings(resBPCA_cdh)
+scores(resBPCA_cdh)[,1:4]
+as_tibble(scores(resBPCA_cdh)) %>%
+	# mutate(group = as.factor(if_else(cdh_iq_pca$chd == 1,
+	#																 if_else(cdh_iq_pca$sys > 1, 3, 2),
+	#																 if_else(cdh_iq_pca$sys > 1, 1, 0)))) %>% 
+	# filter(group %in% c(0)) %>% 
+	ggplot(aes(x = PC2, y = PC1)) +
+	geom_point(alpha = 0.5)
+	# xlim(-1, 2) + ylim(-1.5, 1.5) +
+
+
+variables <- rownames(loadings(resBPCA_cdh))
+apca <- loadings(resBPCA_cdh) %>% as_tibble() %>% 
+	mutate(name = variables)
+
+apca %>% arrange(desc(abs(PC4)))
+apca %>% arrange(desc(abs(PC3)))
+apca %>% arrange(desc(abs(PC2)))
+apca %>% arrange(desc(abs(PC1)))
+```
+
+
+```{r probabilistic_models, eval = FALSE, echo = FALSE}
+library(FPDclustering)
+
+
+pdclust <- PDclust(scores(resBPCA_cdh)[, 1:3], k = 2)
+Silh(pdclust$probability)
+
+fpdclust <- FPDC(scores(resBPCA_cdh)[, 1:3], k = 3, nf = 2, nu = 2)
+#3,2,2(3)best nf cannot be larger than number of column, nf cannot be 1
+Silh(fpdclust$probability)
+
+tibble(
+	cluster1 = fpdclust$probability[, 1],
+	cluster2 = fpdclust$probability[, 2],
+  cluster3 = fpdclust$probability[, 3],
+	pc1 = scores(resBPCA_cdh)[,1],
+	pc2 = scores(resBPCA_cdh)[,2],
+	pc3 = scores(resBPCA_cdh)[,3],
+	label = as.factor(fpdclust$label)
+	) %>%
+	# mutate(test = if_else(label == 1, cluster1, cluster2)) %>% 
+	mutate(test = if_else(label == 1, cluster1,
+												if_else(label == 2, cluster2, cluster3))) %>% 
+	ggplot(aes(x = pc1, y = pc2, color = label)) +
+	geom_point(aes(alpha = test))
+
+tibble(
+	prob = c(fpdclust$probability[, 1], 
+					 fpdclust$probability[, 2],
+					 fpdclust$probability[, 3]),
+	pc1 = rep(scores(resBPCA_cdh)[,1], 3),
+	pc2 = rep(scores(resBPCA_cdh)[,2], 3),
+	pc3 = rep(scores(resBPCA_cdh)[,3], 3),
+	pc = as.factor(c(rep(1, 471), rep(2, 471), rep(3, 471)))
+) %>% ggplot(aes(x = pc1, y = pc2, color = pc)) +
+	geom_point(aes(alpha = prob))
+
+
+```
+
+
