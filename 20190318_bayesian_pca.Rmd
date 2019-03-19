@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, warning = FALSE, message = FALSE)
 library(tidyverse)
 ```
 
@@ -66,7 +66,7 @@ Use expectation-maximization (EM) algorithm to impute missing values. Setting 3 
 ```{r}
 # estimate number of latent variables, run too long
 # missMDA::estim_ncpFAMD(cdh_iq_pca, ncp.max = 4)
-cdh_imputed_famd <- missMDA::imputeFAMD(cdh_iq_pca, method = "EM", ncp = 3)
+cdh_imputed_famd <- missMDA::imputeFAMD(cdh_iq_pca, ncp = 4)
 
 # extract imputated dataframe
 cdh_normalized <- cdh_imputed_famd$completeObs
@@ -99,7 +99,9 @@ FAMD (Factor Analysis for Mixed Data) is a principal component method dedicated 
 
 Since the dataset contains a lot of categorical variables, it would be better to use factor analysis.
 
+**Factor analysis results**
 
+Eigenvalues:
 ```{r factor_analysis}
 
 # factor analysis
@@ -170,9 +172,11 @@ cdh_famd$var$coord %>% as_tibble() %>%
 ```
 
 
-# Probabilistic graphical models
+### Probabilistic graphical models
 
 Gausian Mixture Models for K-means clustering. Three-centroid K-means using individual loadings on the three dimensions from FAMD analysis.
+
+**Note that the K-means using factor loadings are quite different from K-means using original (imputed) dataset, the purpose of using the loadings is for interpretation**
 
 ```{r}
 library(FPDclustering)
